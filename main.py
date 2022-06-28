@@ -4,6 +4,7 @@ import os
 import dataset_manager
 import graph_manager
 import graph_miner
+import feature_selection
 
 
 def extract_file_list(manifest_file):
@@ -55,7 +56,7 @@ def extract_configuration(action):
                 conf_to_val[row[list(row.keys())[0]]] = row[list(row.keys())[1]]
 
     ## process variable_to_keep
-    if(conf_to_val["variable_to_keep"] != "ALL"):
+    if(conf_to_val["variable_to_keep"] not in ["ALL", "BORUTA"]):
         conf_to_val["variable_to_keep"] = conf_to_val["variable_to_keep"].split(";")
 
     ## return configuration
@@ -113,6 +114,10 @@ def run(manifest_file, output_folder, action):
     dataset_manager.load_raw_dataset(label_to_file, output_folder)
     dataset_manager.normalize_dataset(output_folder)
     dataset_manager.simple_discretization(output_folder)
+
+    ## perform feature reduction if needed
+    if(variable_to_keep == "BORUTA"):
+        variable_to_keep = feature_selection.run_boruta(file_list_1, file_list_2, output_folder)
 
     ## init graph folder
     if(not os.path.isdir(output_folder+"/graph")):
