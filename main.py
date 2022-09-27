@@ -5,6 +5,8 @@ import dataset_manager
 import graph_manager
 import graph_miner
 import feature_selection
+import cell_clustering
+import graph_display
 
 
 def extract_file_list(manifest_file):
@@ -45,7 +47,8 @@ def extract_configuration(action):
         "min_support":0.6,
         "max_len":1,
         "variable_to_keep":"ALL",
-        "neighbour_radius":10
+        "neighbour_radius":10,
+        "annotation":"PHENOGRAPH"
     }
 
     ## load conf file if exist
@@ -58,6 +61,13 @@ def extract_configuration(action):
     ## process variable_to_keep
     if(conf_to_val["variable_to_keep"] not in ["ALL", "BORUTA"]):
         conf_to_val["variable_to_keep"] = conf_to_val["variable_to_keep"].split(";")
+
+    ## display configuration
+    print("[+][CONFIGURATION] - min support =>\t"+str(conf_to_val["min_support"]))
+    print("[+][CONFIGURATION] - max lenght =>\t"+str(conf_to_val["max_len"]))
+    print("[+][CONFIGURATION] - variable selection =>\t"+str(conf_to_val["variable_to_keep"]))
+    print("[+][CONFIGURATION] - neighbour radius =>\t"+str(conf_to_val["neighbour_radius"]))
+    print("[+][CONFIGURATION] - annotation strategy =>\t"+str(conf_to_val["annotation"]))
 
     ## return configuration
     return conf_to_val
@@ -100,9 +110,10 @@ def run(manifest_file, output_folder, action):
     ## extract configuration
     conf_to_val = extract_configuration(action)
     min_support = conf_to_val["min_support"]
-    min_len = conf_to_val["max_len"]
+    max_len = int(conf_to_val["max_len"])
     variable_to_keep = conf_to_val["variable_to_keep"]
-    neighbour_radius = conf_to_val["neighbour_radius"]
+    neighbour_radius = int(conf_to_val["neighbour_radius"])
+    annotation = conf_to_val["annotation"]
     if(variable_to_keep == "ALL"):
         variable_to_keep = extract_all_variables(file_list_1[0])
 
@@ -119,6 +130,13 @@ def run(manifest_file, output_folder, action):
     if(variable_to_keep == "BORUTA"):
         variable_to_keep = feature_selection.run_boruta(file_list_1, file_list_2, output_folder)
 
+    ## perform phenograph clustering if needed
+    if(annotation == "PHENOGRAPH"):
+        file_list_1.extend(file_list_2)
+        file_list = file_list_1
+        cell_clustering.annotation_with_pehnograph(file_list, variable_to_keep, output_folder)
+        variable_to_keep = "cluster"
+
     ## init graph folder
     if(not os.path.isdir(output_folder+"/graph")):
         os.mkdir(output_folder+"/graph")
@@ -134,7 +152,10 @@ def run(manifest_file, output_folder, action):
         tf = data_file.split("/")
         tf = tf[-1]
         tf = output_folder+"/discretized_data/"+tf
-        tf = tf.replace(".csv", "_normalized_discretized.csv")
+        if(annotation == "PHENOGRAPH"):
+            tf = tf.replace(".csv", "_phenograph_cluster.csv")
+        else:
+            tf = tf.replace(".csv", "_normalized_discretized.csv")
 
         if(os.path.isfile(tf)):
 
@@ -147,13 +168,34 @@ def run(manifest_file, output_folder, action):
             #-> craft nodes
             graph_manager.craft_node_dataframe(tf, output_folder)
 
+            #-> generate graphe image
+            edge_file = tf.split("/")
+            edge_file = edge_file[-1]
+            edge_file = output_folder+"/graph/edges/"+edge_file
+            node_file = tf.split("/")
+            node_file = node_file[-1]
+            node_file = output_folder+"/graph/nodes/"+node_file
+            pos_file = tf.split("/")
+            pos_file = pos_file[-1]
+            pos_file = output_folder+"/discretized_data/"+pos_file
+            output_name = tf.split("/")
+            output_name = output_name[-1]
+            output_name = output_folder+"/graph/"+output_name
+            output_name = output_name.replace(".csv", "_graph.svg")
+
+            #-> generate graph
+            graph_display.simple_display(edge_file, node_file, pos_file, output_name)
+
     ## craft file list 2
     file_list_2_discretized = []
     for data_file in file_list_2:
         tf = data_file.split("/")
         tf = tf[-1]
         tf = output_folder+"/discretized_data/"+tf
-        tf = tf.replace(".csv", "_normalized_discretized.csv")
+        if(annotation == "PHENOGRAPH"):
+            tf = tf.replace(".csv", "_phenograph_cluster.csv")
+        else:
+            tf = tf.replace(".csv", "_normalized_discretized.csv")
 
         if(os.path.isfile(tf)):
 
@@ -166,13 +208,32 @@ def run(manifest_file, output_folder, action):
             #-> craft nodes
             graph_manager.craft_node_dataframe(tf, output_folder)
 
+            #-> generate graphe image
+            edge_file = tf.split("/")
+            edge_file = edge_file[-1]
+            edge_file = output_folder+"/graph/edges/"+edge_file
+            node_file = tf.split("/")
+            node_file = node_file[-1]
+            node_file = output_folder+"/graph/nodes/"+node_file
+            pos_file = tf.split("/")
+            pos_file = pos_file[-1]
+            pos_file = output_folder+"/discretized_data/"+pos_file
+            output_name = tf.split("/")
+            output_name = output_name[-1]
+            output_name = output_folder+"/graph/"+output_name
+            output_name = output_name.replace(".csv", "_graph.svg")
+
+            #-> generate graph
+            graph_display.simple_display(edge_file, node_file, pos_file, output_name)
+
     ## run graph analysis
-    graph_miner.run_single_cell_analysis(
+    graph_miner.run_cell_analysis(
         file_list_1_discretized,
         file_list_2_discretized,
         variable_to_keep,
         min_support,
-        output_folder
+        output_folder,
+        max_len
     )
 
 

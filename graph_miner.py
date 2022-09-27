@@ -5,7 +5,7 @@ from mlxtend.preprocessing import TransactionEncoder
 from mlxtend.frequent_patterns import fpgrowth
 import matplotlib.pyplot as plt
 import plotly.express as px
-
+import pprint
 
 
 def extract_connected_nodes(edges_file):
@@ -62,22 +62,38 @@ def convert_subgraph_to_pattern_list(subgraph_to_node, nodes_file, variables_to_
     df = df[variables_to_keep]
 
     ## loop over node
+    # -> test if df is a dataframe (i.e if multiple variable to describe node)
+    # if not, assume it is a serie and then the pattern is composed of only one element
     node_cmpt = 0
-    for index, row in df.iterrows():
+    if(isinstance(df, pd.DataFrame)):
+        for index, row in df.iterrows():
 
-        #-> identify node
-        node_cmpt +=1
-        node_name = "cell_"+str(node_cmpt)
+            #-> identify node
+            node_cmpt +=1
+            node_name = "cell_"+str(node_cmpt)
 
-        #-> craft pattern
-        pattern = ""
-        for k in list(row.keys()):
-            scalar = row[k]
-            pattern+=str(int(scalar))+"-"
-        pattern = pattern[:-1]
+            #-> craft pattern
+            pattern = ""
+            for k in list(row.keys()):
+                scalar = row[k]
+                pattern+=str(int(scalar))+"-"
+            pattern = pattern[:-1]
 
-        #-> update node to features
-        node_to_pattern[node_name] = pattern
+            #-> update node to features
+            node_to_pattern[node_name] = pattern
+    else:
+        for elt in df:
+
+            #-> identify node
+            node_cmpt +=1
+            node_name = "cell_"+str(node_cmpt)
+
+            #-> craft pattern
+            pattern = elt
+
+            #-> update node to features
+            node_to_pattern[node_name] = pattern
+
 
     ## loop over subgraph
     for subgraph in subgraph_to_node:
@@ -101,7 +117,7 @@ def fptree_mining(pattern_list, min_support, max_len):
     df = pd.DataFrame(te_ary, columns=te.columns_)
 
     ## mine
-    frequent_pattern = fpgrowth(df, min_support=min_support, use_colnames=True, max_len=max_len)
+    frequent_pattern = fpgrowth(df, min_support=min_support, use_colnames=True, max_len=int(max_len))
 
     ## return frequent_pattern
     return frequent_pattern
@@ -331,12 +347,13 @@ def plot_support_distribution(pattern_support_file):
 
 
 
-def run_single_cell_analysis(file_list_1, file_list_2,variable_to_keep, min_support, output_folder):
+def run_cell_analysis(file_list_1, file_list_2,variable_to_keep, min_support, output_folder, max_len):
     """
+    Actually, try to make this not single cell (play with max_len)
     """
 
     ## parameters
-    max_len = 1
+    #max_len = 1
     extracted_file_name_1 = output_folder+"/pattern_ewtracted_1.csv"
     extracted_file_name_2 = output_folder+"/pattern_ewtracted_2.csv"
     comparison_file_name = output_folder+"/pattern_compared.csv"
@@ -368,3 +385,106 @@ def run_single_cell_analysis(file_list_1, file_list_2,variable_to_keep, min_supp
 
     ## plot pattern distribution for category 2
     plot_support_distribution(extracted_file_name_2)
+
+
+
+
+
+
+def hunt_patterns(edges_file, nodes_file, pattern_list):
+    """
+    """
+
+    ## parameters
+    subgraph_to_node = {}
+    node_to_label = {}
+    node_save_list = []
+    subgraph_cmpt = 0
+
+    ## load data
+    df = pd.read_csv(edges_file)
+
+    ## loop over edges
+    for index, row in df.iterrows():
+
+        #-> extract information
+        source = row["source"]
+        target = row["target"]
+
+        #-> check the other subgraph
+        extend_existing_subgraph = False
+        for subgraph in subgraph_to_node.keys():
+            node_list = subgraph_to_node[subgraph]
+            if(source in node_list and target not in node_list):
+                subgraph_to_node[subgraph].append(target)
+                extend_existing_subgraph = True
+            if(target in node_list and source not in node_list):
+                subgraph_to_node[subgraph].append(source)
+                extend_existing_subgraph = True
+
+        #-> create new subgraph
+        if(not extend_existing_subgraph):
+            subgraph_cmpt+=1
+            subgraph = "subgraph_"+str(subgraph_cmpt)
+            subgraph_to_node[subgraph] = [source,target]
+
+    ## get node to label
+    df_node = pd.read_csv(nodes_file)
+    for index, row in df_node.iterrows():
+
+        node_name = "cell_"+str(index+1)
+        label_name = row.keys()[0]
+        label = row[label_name]
+        node_to_label[node_name] = str(label)
+
+    ## loop over subgraph_to_node
+    for subgraph in subgraph_to_node.keys():
+
+        #-> extract node list
+        node_list = subgraph_to_node[subgraph]
+
+        #-> check patterns to hunt
+        for pattern in pattern_list:
+
+            #-> treat only if subgraph can contain pattern
+            if(len(node_list) >=len(pattern)):
+
+                #-> check if pattern is contained in subraph
+                node_list_labeled = []
+                for node in node_list:
+                    node_label = node_to_label[node]
+                    node_list_labeled.append(node_label)
+                node_list_labeled = set(node_list_labeled)
+                pattern = set(pattern)
+                if set(pattern).issubset(node_list_labeled):
+                    for node in node_list:
+                        if(node not in node_save_list and node_to_label[node] in pattern):
+                            node_save_list.append(node)
+
+    ## create new node file
+    node_file_name = nodes_file.replace(".csv", "_filtered.csv")
+    node_data = open(node_file_name, "w")
+    node_data.write("ID,"+str(label_name)+"\n")
+    for node in node_save_list:
+        node_data.write(str(node)+","+str(node_to_label[node])+"\n")
+    node_data.close()
+
+    ## create edge file
+    edge_file_name_out = edges_file.replace(".csv", "_filtered.csv")
+    input_edge = open(edges_file, "r")
+    output_edge = open(edge_file_name_out, "w")
+    output_edge.write("source,target\n")
+    for line in input_edge:
+        line = line.rstrip()
+        line_array = line.split(",")
+        if(len(line_array) > 1):
+            source = line_array[0]
+            target = line_array[1]
+            if((source in node_save_list and target in node_save_list)):
+                output_edge.write(str(source)+","+str(target)+"\n")
+    output_edge.close()
+    input_edge.close()
+
+
+
+#hunt_patterns("/home/bran/Workspace/misc/hypernet_test4/graph/edges/test_edges.csv", "/home/bran/Workspace/misc/hypernet_test4/graph/nodes/test_nodes.csv", [["1","2"]])

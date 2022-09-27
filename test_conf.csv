@@ -1,0 +1,5 @@
+param,value
+variable_to_keep,ALL
+max_len,3
+neighbour_radius,20
+annotation,PHENOGRAPH
