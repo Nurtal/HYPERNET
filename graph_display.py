@@ -25,6 +25,11 @@ def simple_display(edge_file, node_file, pos_file, output_file_name):
     df_node =pd.read_csv(node_file)
     node_list = []
     cluster_to_node = {}
+
+    #-> patch cluster column name if needed
+    if("pgraph" in df_node.keys()):
+        df_node = df_node.rename(columns={"pgraph":"cluster"})
+
     for index, row in df_node.iterrows():
 
         #-> extract id & properties
@@ -84,7 +89,7 @@ def simple_display(edge_file, node_file, pos_file, output_file_name):
 
     #-> draw the edge
     nx.draw_networkx_edges(G, pos, edgelist=edge_list)
-
+    #nx.write_gml(G, "test.gml")
     #-> display
     plt.tight_layout()
     plt.axis("off")
@@ -95,8 +100,8 @@ def simple_display(edge_file, node_file, pos_file, output_file_name):
 
 
 
-"""
 ## real data
+"""
 edge_file = "/home/bran/Workspace/misc/hypernet_test4/graph/edges/slide11roi10_1_mean_phenograph_cluster.csv"
 node_file = "/home/bran/Workspace/misc/hypernet_test4/graph/nodes/slide11roi10_1_mean_phenograph_cluster.csv"
 pos_file = "/home/bran/Workspace/misc/hypernet_test4/discretized_data/slide11roi10_1_mean_phenograph_cluster.csv"
@@ -111,4 +116,11 @@ pos_file = "/home/bran/Workspace/misc/hypernet_test4/discretized_data/test_pos.c
 output_name = "/home/bran/Workspace/misc/hypernet_test4/graph/test_graph.svg"
 """
 
+## Summer School demo data
+"""
+edge_file = "/home/bran/Workspace/SALIVARY_GLANDS/hypernet_sjs/graph/edges/slide10roi10_mean_phenograph_cluster_filtered.csv"
+node_file = "/home/bran/Workspace/SALIVARY_GLANDS/hypernet_sjs/graph/nodes/slide10roi10_mean_phenograph_cluster_filtered.csv"
+pos_file = "/home/bran/Workspace/SALIVARY_GLANDS/hypernet_sjs/discretized_data/slide10roi10_mean_normalized_discretized.csv"
+output_name = "/home/bran/Workspace/SALIVARY_GLANDS/hypernet_sjs/graph/test1.svg"
+"""
 #simple_display(edge_file, node_file, pos_file, output_name)

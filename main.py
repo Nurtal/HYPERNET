@@ -1,13 +1,14 @@
 ## imporation
 import pandas as pd
 import os
+import shutil
 import dataset_manager
 import graph_manager
 import graph_miner
 import feature_selection
 import cell_clustering
 import graph_display
-
+import neighboor_analysis
 
 def extract_file_list(manifest_file):
     """
@@ -32,6 +33,8 @@ def extract_file_list(manifest_file):
                 label_to_file[label].append(fname)
             else:
                 label_to_file[label] = [fname]
+        else:
+            print("[!] "+str(fname)+" not found")
 
     ## return category to file
     return label_to_file
@@ -48,7 +51,10 @@ def extract_configuration(action):
         "max_len":1,
         "variable_to_keep":"ALL",
         "neighbour_radius":10,
-        "annotation":"PHENOGRAPH"
+        "annotation":"PHENOGRAPH",
+        "normalize":True,
+        "discretize":True,
+        "neighbour_matrix":False
     }
 
     ## load conf file if exist
@@ -68,6 +74,9 @@ def extract_configuration(action):
     print("[+][CONFIGURATION] - variable selection =>\t"+str(conf_to_val["variable_to_keep"]))
     print("[+][CONFIGURATION] - neighbour radius =>\t"+str(conf_to_val["neighbour_radius"]))
     print("[+][CONFIGURATION] - annotation strategy =>\t"+str(conf_to_val["annotation"]))
+    print("[+][CONFIGURATION] - normalize =>\t"+str(conf_to_val["normalize"]))
+    print("[+][CONFIGURATION] - discretize =>\t"+str(conf_to_val["discretize"]))
+    print("[+][CONFIGURATION] - neighbour_matrix =>\t"+str(conf_to_val["neighbour_matrix"]))
 
     ## return configuration
     return conf_to_val
@@ -93,7 +102,7 @@ def extract_all_variables(data_file):
 
 
 
-def run(manifest_file, output_folder, action):
+def run_old(manifest_file, output_folder, action):
     """
     IN PROGRESS
 
@@ -238,6 +247,159 @@ def run(manifest_file, output_folder, action):
 
 
 
+def run(manifest_file, output_folder, action):
+    """
+    IN PROGRESS
+
+    -> Try to get this thing working for n cluster
+    """
+
+    ## paramaters
+    sub_out_folder = "raw_data"
+
+    ## extract files lists from manifest
+    label_to_file = extract_file_list(manifest_file)
+    all_files = []
+    for k in label_to_file.keys():
+        flist = label_to_file[k]
+        for f in flist:
+            if(f not in all_files):
+                all_files.append(f)
+
+    ## extract configuration
+    conf_to_val = extract_configuration(action)
+    min_support = conf_to_val["min_support"]
+    max_len = int(conf_to_val["max_len"])
+    variable_to_keep = conf_to_val["variable_to_keep"]
+    neighbour_radius = int(conf_to_val["neighbour_radius"])
+    annotation = conf_to_val["annotation"]
+    normalize = conf_to_val["normalize"]
+    discretize = conf_to_val["discretize"]
+    if(variable_to_keep == "ALL"):
+        variable_to_keep = extract_all_variables(all_files[0])
+
+    ## craft output folder if not exist
+    if(not os.path.isdir(output_folder)):
+        os.mkdir(output_folder)
+
+    ## export config file to output folder (if action is a file)
+    if(os.path.isfile(action)):
+        destination = output_folder+"/configuration.csv"
+        shutil.copy(action, destination)
+
+    ## prepare dataset
+    dataset_manager.load_raw_dataset(label_to_file, output_folder)
+    if(str(normalize) == "True"):
+        dataset_manager.normalize_dataset(output_folder)
+        sub_out_folder = "normalized_data"
+    if(str(discretize) == "True"):
+        dataset_manager.simple_discretization(output_folder)
+        sub_out_folder = "discretized_data"
+
+    ## perform feature reduction if needed
+    if(variable_to_keep == "BORUTA"):
+        variable_to_keep = feature_selection.run_boruta(file_list_1, file_list_2, output_folder)
+
+    ## perform phenograph clustering if needed
+    if(annotation == "PHENOGRAPH"):
+        file_list_1.extend(file_list_2)
+        file_list = file_list_1
+        cell_clustering.annotation_with_pehnograph(file_list, variable_to_keep, output_folder)
+        variable_to_keep = "cluster"
+
+    ## init graph folder
+    if(not os.path.isdir(output_folder+"/graph")):
+        os.mkdir(output_folder+"/graph")
+    if(not os.path.isdir(output_folder+"/graph/nodes")):
+        os.mkdir(output_folder+"/graph/nodes")
+    if(not os.path.isdir(output_folder+"/graph/edges")):
+        os.mkdir(output_folder+"/graph/edges")
+
+    ## run file analysis
+    graph_miner.generate_radar_profile(label_to_file, output_folder)
+
+    ## craft graph
+    for label in label_to_file.keys():
+
+        ## get files
+        file_list = label_to_file[label]
+
+        ## craft graph
+        ## craft file list 1
+        #file_list_1_discretized = []
+        for data_file in file_list:
+            tf = data_file.split("/")
+            tf = tf[-1]
+            tf = output_folder+"/"+sub_out_folder+"/"+tf
+
+            if(annotation == "PHENOGRAPH"):
+                tf = tf.replace(".csv", "_phenograph_cluster.csv")
+            elif(normalize == "True" and discretize == "True"):
+                tf = tf.replace(".csv", "_normalized_discretized.csv")
+
+            if(os.path.isfile(tf)):
+
+                #-> update target file list
+                #file_list_1_discretized.append(tf)
+
+                #-> craft edges
+                graph_manager.craft_edge_dataframe(tf, neighbour_radius, output_folder)
+
+                #-> craft nodes
+                graph_manager.craft_node_dataframe(tf, output_folder)
+
+                #-> generate graphe image
+                edge_file = tf.split("/")
+                edge_file = edge_file[-1]
+                edge_file = output_folder+"/graph/edges/"+edge_file
+                node_file = tf.split("/")
+                node_file = node_file[-1]
+                node_file = output_folder+"/graph/nodes/"+node_file
+                pos_file = tf.split("/")
+                pos_file = pos_file[-1]
+                pos_file = output_folder+"/"+sub_out_folder+"/"+pos_file
+                output_name = tf.split("/")
+                output_name = output_name[-1]
+                output_name = output_folder+"/graph/"+output_name
+                output_name = output_name.replace(".csv", "_graph.svg")
+
+                #-> generate graph
+                graph_display.simple_display(edge_file, node_file, pos_file, output_name)
+
+
+    ## run distance matrix generation
+    if(str(conf_to_val["neighbour_matrix"]) == "True"):
+
+        #-> craft images subfolder if not exist
+        if(not os.path.isdir(output_folder+"/images")):
+            os.mkdir(output_folder+"/images")
+
+        #-> get file list for each label
+        for cluster in label_to_file.keys():
+            file_list = label_to_file[cluster]
+            heatmap_image_file = output_folder+"/images/"+"class_"+str(cluster)+"_neigboor_matrix.png"
+            neighboor_analysis.run_on_multiple_files(file_list, heatmap_image_file, float(conf_to_val["neighbour_radius"]))
+
+    ## run graph analysis
+    graph_miner.run_pattern_analysis(
+        label_to_file,
+        variable_to_keep,
+        min_support,
+        output_folder,
+        max_len
+    )
+    """
+    graph_miner.run_cell_analysis(
+        file_list_1_discretized,
+        file_list_2_discretized,
+        variable_to_keep,
+        min_support,
+        output_folder,
+        max_len
+    )
+    """
+
+
 
 ##------##
 ## MAIN ########################################################################
@@ -276,7 +438,7 @@ if __name__=='__main__':
            action = arg
 
     ## display cool banner
-    text="HYPERNET - hYperion NETwork"
+    text="HYPERNET - HYPERion NETwork"
     cprint(figlet_format(text, font="standard"), "blue")
 
     ## check that all arguments are present

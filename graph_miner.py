@@ -6,6 +6,8 @@ from mlxtend.frequent_patterns import fpgrowth
 import matplotlib.pyplot as plt
 import plotly.express as px
 import pprint
+import numpy as np
+import re
 
 
 def extract_connected_nodes(edges_file):
@@ -59,7 +61,8 @@ def convert_subgraph_to_pattern_list(subgraph_to_node, nodes_file, variables_to_
 
     ## load nodes file
     df = pd.read_csv(nodes_file)
-    df = df[variables_to_keep]
+    if(variables_to_keep != "ALL"):
+        df = df[variables_to_keep]
 
     ## loop over node
     # -> test if df is a dataframe (i.e if multiple variable to describe node)
@@ -153,7 +156,7 @@ def extract_frequent_pattern_from_list(edges_file_list, nodes_file_list, variabl
 
 
 
-def get_patterns_to_global_support(file_list, variable_to_keep, min_support, max_len, output_file_name):
+def get_patterns_to_global_support(file_list, variable_to_keep, min_support, max_len, output_file_name, output_folder):
     """
     """
 
@@ -162,13 +165,24 @@ def get_patterns_to_global_support(file_list, variable_to_keep, min_support, max
     node_file_list = []
     for target_file in file_list:
 
+        #-> look for files
+        if(re.search("discretized_data/", target_file)):
+            edge_file = target_file.replace("discretized_data/", "graph/edges/")
+            node_file = target_file.replace("discretized_data/", "graph/nodes/")
+        elif(re.search("raw_data/", target_file)):
+            edge_file = target_file.replace("raw_data/", "graph/edges/")
+            node_file = target_file.replace("raw_data/", "graph/nodes/")
+        else:
+            target_file = target_file.split("/")
+            target_file = target_file[-1]
+            edge_file = output_folder+"/graph/edges/"+str(target_file)
+            node_file = output_folder+"/graph/nodes/"+str(target_file)
+
         #-> craft edge file list
-        edge_file = target_file.replace("discretized_data/", "graph/edges/")
         if(os.path.isfile(edge_file)):
             edge_file_list.append(edge_file)
 
         #-> craft node file list
-        node_file = target_file.replace("discretized_data/", "graph/nodes/")
         if(os.path.isfile(node_file)):
             node_file_list.append(node_file)
 
@@ -237,6 +251,56 @@ def compare_support_distribution(data_file1, data_file2, output_file_name):
         output_file.write(line)
     output_file.close()
 
+
+
+def compare_multiple_support_distribution(cluster_to_pattern_file, output_file_name):
+    """
+    """
+
+    ## parameters
+    cluster_to_pattern_to_support = {}
+    all_patterns = []
+    sep = ";"
+
+    ## loop over cluster
+    for cluster in cluster_to_pattern_file.keys():
+        pattern_file = cluster_to_pattern_file[cluster]
+        pattern_to_support = {}
+
+        #-> load patterns
+        df = pd.read_csv(pattern_file)
+        for index, row in df.iterrows():
+            p = row["itemsets"]
+            if(p not in pattern_to_support.keys()):
+                pattern_to_support[p] = row["support"]
+            if(p not in all_patterns):
+                all_patterns.append(p)
+
+        #-> update data structure
+        cluster_to_pattern_to_support[cluster] = pattern_to_support
+
+    ## extend
+    for cluster in cluster_to_pattern_file.keys():
+        pattern_to_support = cluster_to_pattern_to_support[cluster]
+        for p in all_patterns:
+            if(p not in pattern_to_support.keys()):
+                pattern_to_support[p] = 0
+        cluster_to_pattern_to_support[cluster] = pattern_to_support
+
+    ## save dataset
+    output_file = open(output_file_name, "w")
+    header = "itemsets"+str(sep)
+    for cluster in cluster_to_pattern_to_support.keys():
+        header+="support_"+str(cluster)+str(sep)
+    header = header[:-1]
+    output_file.write(header+"\n")
+    for p in all_patterns:
+        line = str(p)+str(sep)
+        for cluster in cluster_to_pattern_file.keys():
+            line += str(cluster_to_pattern_to_support[cluster][p])+str(sep)
+        line = line[:-1]
+        output_file.write(line+"\n")
+    output_file.close()
 
 
 
@@ -361,10 +425,10 @@ def run_cell_analysis(file_list_1, file_list_2,variable_to_keep, min_support, ou
     node_plot_2 = output_folder+"/node2.png"
 
     ## get pattern for flobal support for file list 1
-    get_patterns_to_global_support(file_list_1, variable_to_keep, min_support, max_len, extracted_file_name_1)
+    get_patterns_to_global_support(file_list_1, variable_to_keep, min_support, max_len, extracted_file_name_1, output_folder)
 
     ## get pattern for flobal support for file list 2
-    get_patterns_to_global_support(file_list_2, variable_to_keep, min_support, max_len, extracted_file_name_2)
+    get_patterns_to_global_support(file_list_2, variable_to_keep, min_support, max_len, extracted_file_name_2, output_folder)
 
     ## compare support distribution
     compare_support_distribution(extracted_file_name_1, extracted_file_name_2, comparison_file_name)
@@ -385,6 +449,141 @@ def run_cell_analysis(file_list_1, file_list_2,variable_to_keep, min_support, ou
 
     ## plot pattern distribution for category 2
     plot_support_distribution(extracted_file_name_2)
+
+
+
+def run_pattern_analysis(cluster_to_file_list, variable_to_keep, min_support, output_folder, max_len):
+    """
+    TO TEST
+    """
+
+    ## paramaters
+    cluster_to_pattern_file = {}
+    output_file_name = output_folder+"/pattern_comparison.csv"
+
+    ## loop over cluster
+    for cluster in cluster_to_file_list.keys():
+        file_list = cluster_to_file_list[cluster]
+        extracted_file_name = output_folder+"/pattern_extracted_for_"+str(cluster)+".csv"
+
+        # -> extract frequent pattern
+        get_patterns_to_global_support(
+            file_list,
+            variable_to_keep,
+            min_support,
+            max_len,
+            extracted_file_name,
+            output_folder
+        )
+
+        # -> update dict of pattern files
+        cluster_to_pattern_file[cluster] = extracted_file_name
+
+    ## Write comparison table
+    compare_multiple_support_distribution(cluster_to_pattern_file, output_file_name)
+
+
+def generate_radar_profile(cluster_to_file_list, output_folder):
+    """
+    """
+
+    ## parameters
+
+    ## craft images folder if not exist
+    if(not os.path.isdir(output_folder+"/images")):
+        os.mkdir(output_folder+"/images")
+
+    ## loop over clusters
+    for cluster in cluster_to_file_list.keys():
+
+        ## extract file list
+        file_list = cluster_to_file_list[cluster]
+
+        ## init data
+        c_to_prop_list = {}
+
+        ## compute proportion of cluster (from cell, not patient) in the file
+        for f in file_list:
+
+            ## count cluster
+            cmpt = 0
+            c_to_count = {}
+            df = pd.read_csv(f)
+            if("pgraph" in df.keys()):
+                df = df.rename(columns={"pgraph":"cluster"})
+            for c in list(df['cluster']):
+                if(c not in c_to_count.keys()):
+                    c_to_count[c] = 1
+                else:
+                    c_to_count[c] +=1
+                cmpt +=1
+
+            ## convert to proportion
+            c_to_prop = {}
+            for c in c_to_count.keys():
+                c_to_prop[c] = float(c_to_count[c]) / cmpt
+
+            ## update big data
+            for c in c_to_prop.keys():
+                if(c not in c_to_prop_list.keys()):
+                    c_to_prop_list[c] = [c_to_prop[c]]
+                else:
+                    c_to_prop_list[c].append(c_to_prop[c])
+
+        ## compute mean & std
+        c_to_mean = {}
+        c_to_std_pos = {}
+        c_to_std_neg = {}
+        for c in c_to_prop_list.keys():
+            prop_list = c_to_prop_list[c]
+            c_to_mean[c] = np.mean(prop_list)
+            c_to_std_pos[c] = np.mean(prop_list) + np.std(prop_list)
+            c_to_std_neg[c] = np.mean(prop_list) - np.std(prop_list) 
+
+        ## generate radar plot
+        labels = list(c_to_mean.keys())
+        values = list(c_to_mean.values())
+        values_std_pos = list(c_to_std_pos.values())
+        values_std_neg = list(c_to_std_neg.values())
+
+        # Number of variables we're plotting.
+        num_vars = len(labels)
+
+        # Split the circle into even parts and save the angles
+        # so we know where to put each axis.
+        angles = np.linspace(0, 2 * np.pi, num_vars, endpoint=False).tolist()
+        # The plot is a circle, so we need to "complete the loop"
+        # and append the start value to the end.
+        values += values[:1]
+        values_std_pos += values_std_pos[:1]
+        values_std_neg += values_std_neg[:1]
+        angles += angles[:1]
+        # ax = plt.subplot(polar=True)
+        fig, ax = plt.subplots(figsize=(6, 6), subplot_kw=dict(polar=True))
+        # Draw the outline of our data.
+        ax.plot(angles, values, color='red', linewidth=1, label="MEAN")
+        ax.plot(angles, values_std_pos, color='red', linewidth=1, label="MEAN + STD", linestyle='dashed')
+        ax.plot(angles, values_std_neg, color='red', linewidth=1, label="MEAN - STD", linestyle='dashed')
+        
+        # Fill it in.
+        ax.fill(angles, values, color='red', alpha=0.25)
+        # ax.fill(angles, values_std_pos, color='blue', alpha=0.25)
+        # ax.fill(angles, values_std_neg, color='red', alpha=0.25)
+
+        # Fix axis to go in the right order and start at 12 o'clock.
+        ax.set_theta_offset(np.pi / 2)
+        ax.set_theta_direction(-1)
+        # Draw axis lines for each angle and label. Dirty patch, seems to work
+        ax.set_thetagrids(np.degrees(angles[:-1]), labels)
+        plt.title("Mean cell cluster distribution in class "+str(cluster))
+
+        # Add a legend -> Patrice said no need, uncomment the line if needed
+        # ax.legend(loc='lower right')
+
+        # save file
+        save_file_name = output_folder+"/images/radar_distribution_class"+str(cluster)+".svg"
+        plt.savefig(save_file_name)
+        plt.close()
 
 
 
@@ -486,5 +685,13 @@ def hunt_patterns(edges_file, nodes_file, pattern_list):
     input_edge.close()
 
 
+
+## Summer School demo
+"""
+pattern_list = [[11.0, 9.0, 2.0, 10.0]]
+edge_file = "/home/bran/Workspace/SALIVARY_GLANDS/hypernet_sjs/graph/edges/slide10roi10_mean_phenograph_cluster.csv"
+node_file = "/home/bran/Workspace/SALIVARY_GLANDS/hypernet_sjs/graph/nodes/slide10roi10_mean_phenograph_cluster.csv"
+hunt_patterns(edge_file, node_file, pattern_list)
+"""
 
 #hunt_patterns("/home/bran/Workspace/misc/hypernet_test4/graph/edges/test_edges.csv", "/home/bran/Workspace/misc/hypernet_test4/graph/nodes/test_nodes.csv", [["1","2"]])
