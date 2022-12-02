@@ -1,0 +1,8 @@
+param,value
+variable_to_keep,ALL
+max_len,8
+neighbour_radius,25
+normalize,False
+discretize,False
+annotation,
+neighbour_matrix,True

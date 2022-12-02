@@ -87,11 +87,17 @@ def craft_heatmap(cluster_to_voisins_to_percentage, save_file_name):
         vector = []
         data = cluster_to_voisins_to_percentage[cluster]
         for voisin in cluster_list:
-            vector.append(data[voisin])
+            if(voisin in data.keys()):
+                vector.append(data[voisin])
+            else:
+                vector.append(0)
         matrix.append(vector)
 
     ## craft figure
     ax = sns.heatmap(matrix, xticklabels=cluster_list, yticklabels=cluster_list)
+    plt.title("Neighborhood Matrix")
+    plt.xlabel("Neighborhood Distribution (% of clusters)")
+    plt.ylabel("Cluster")
     plt.savefig(save_file_name)
     plt.close()
 
@@ -167,4 +173,102 @@ def run(data_file):
 
 
 
-run("pheno1.csv")
+
+def run_on_multiple_files(data_file_list, heatmap_image_file):
+    """
+    """
+
+    ## parameters
+    id_to_coordinates = {}
+    cluster_to_id_list = {}
+    id_to_cluster = {}
+    cluster_to_voisins_to_count = {}
+    radius = 0.2
+    #heatmap_image_file = "heatmap_test.png"
+
+
+    for data_file in data_file_list:
+
+        ## load data_file
+        df = pd.read_csv(data_file)
+
+        ## get cell to location
+        for index, row in df.iterrows():
+
+            #-> get id
+            if(" Cell_ID" in row.keys()):
+                cell_id = row[" Cell_ID"]
+            else:
+                cell_id = index
+
+            #-> get coordinates
+            coord = str(row["centroid_X"])+"_"+str(row["centroid_Y"])
+
+            #-> get label
+            if("Cluster" in row.keys()):
+                label = row["Cluster"]
+            elif("pgraph" in row.keys()):
+                label = row["pgraph"]
+
+            #-> update id to coordinates
+            id_to_coordinates[cell_id] = coord
+
+            #-> update id to cluster
+            id_to_cluster[cell_id] = label
+
+            #-> update cluster to id
+            if(label in list(cluster_to_id_list)):
+                cluster_to_id_list[label].append(cell_id)
+            else:
+                cluster_to_id_list[label] = [cell_id]
+
+        ## loop over types
+        for label in list(cluster_to_id_list.keys()):
+
+            if(label not in cluster_to_voisins_to_count.keys()):
+                cluster_to_voisins_to_count[label] = {}
+
+            #-> for cell in types get close cells
+            for cell_id in cluster_to_id_list[label]:
+
+                #-> get voisinage label enrichement
+                voisinage = check_neighboor(cell_id, id_to_coordinates, radius)
+
+                #-> get type of close cell & update cell_type_to_prox_cell_type
+                for cid in voisinage:
+                    cluster = id_to_cluster[cid]
+                    if(cluster in cluster_to_voisins_to_count[label].keys()):
+                        cluster_to_voisins_to_count[label][cluster] +=1
+                    else:
+                        cluster_to_voisins_to_count[label][cluster] = 1
+
+
+    ## work with cell_type_to_prox_cell_type
+    cluster_to_voisins_to_percentage = get_voisin_count_as_percentage(cluster_to_voisins_to_count)
+
+    ## craft heatmap
+    craft_heatmap(cluster_to_voisins_to_percentage, heatmap_image_file)
+
+
+
+"""
+test_cluster_to_voisins_to_percentage = {
+    1:{1:0.33, 2:0.33, 3:0.33},
+    2:{1:0.0, 2:0.5, 3:0.5},
+    3:{1:0.6, 2:0.2, 3:0.2}
+}
+craft_heatmap(test_cluster_to_voisins_to_percentage, "stupid_test.png")
+"""
+
+
+prefix = "/home/bran/Workspace/SIDEQUEST/Patrice/graph/data"
+for cluster in ["2","3","ctrl"]:
+
+    file_list = pd.read_csv(prefix+"/cluster_"+str(cluster)+"_files.csv")
+    file_list = list(file_list["FILE"])
+    file_clean = []
+    for f in file_list:
+        f = prefix+"/"+f
+        file_clean.append(f)
+
+    run_on_multiple_files(file_clean, "cluster_"+str(cluster)+"_matrix.png")
